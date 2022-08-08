@@ -61,5 +61,99 @@ namespace ASPNetCoreDapper.Repositories
                 return createdCompany;
             }
         }
+        /// <summary>
+        /// Update company
+        /// </summary>
+        /// <param name="id">Company's id to update</param>
+        /// <param name="company">Comapany to update</param>
+        /// <returns></returns>
+        public async Task UpdateCompany(int id, CompanyForUpdateDto company)
+        {
+            var query = "UPDATE Companies SET Name = @Name, Address = @Address, Country = @Country WHERE Id = @Id";
+
+            var parameters = new DynamicParameters();
+            parameters.Add("Id", id, DbType.Int32);
+            parameters.Add("Name", company.Name, DbType.String);
+            parameters.Add("Address", company.Address, DbType.String);
+            parameters.Add("Country", company.Country, DbType.String);
+
+            using (var connection = _context.CreateConnection())
+            {
+                await connection.ExecuteAsync(query, parameters);
+            }
+        }
+
+        /// <summary>
+        /// Company to delete
+        /// </summary>
+        /// <param name="id">Company's id to delete</param>
+        /// <returns></returns>
+        public async Task DeleteCompany(int id)
+        {
+            var query = "DELETE FROM Companies WHERE Id = @Id";
+
+            using (var connection = _context.CreateConnection())
+            {
+                await connection.ExecuteAsync(query, new { id });
+            }
+        }
+
+        public async Task<Company> GetCompanyByEmployeeId(int id)
+        {
+            var procedureName = "ShowCompanyForProvidedEmployeeId";
+            var parameters = new DynamicParameters();
+            parameters.Add("Id", id, DbType.Int32, ParameterDirection.Input);
+
+            using (var connection = _context.CreateConnection())
+            {
+                var company = await connection.QueryFirstOrDefaultAsync<Company>
+                    (procedureName, parameters, commandType: CommandType.StoredProcedure);
+
+                return company;
+            }
+        }
+
+        public async Task<Company> GetCompanyEmployeesMultipleResults(int id)
+        {
+            var query = "SELECT * FROM Companies WHERE Id = @Id;" +
+                        "SELECT * FROM Employees WHERE CompanyId = @Id";
+
+            using (var connection = _context.CreateConnection())
+            using (var multi = await connection.QueryMultipleAsync(query, new { id }))
+            {
+                var company = await multi.ReadSingleOrDefaultAsync<Company>();
+                if (company != null)
+                    company.Employees = (await multi.ReadAsync<Employee>()).ToList();
+
+                return company;
+            }
+        }
+
+        public async Task<List<Company>> GetCompaniesEmployeesMultipleMapping()
+        {
+            var query = "SELECT * FROM Companies c LEFT JOIN Employees e ON c.Id = e.CompanyId";
+
+            using (var connection = _context.CreateConnection())
+            {
+                var companyDict = new Dictionary<int, Company>();
+
+                var companies = await connection.QueryAsync<Company, Employee, Company>(
+                    query, (company, employee) =>
+                    {
+                        if (!companyDict.TryGetValue(company.Id, out var currentCompany))
+                        {
+                            currentCompany = company;
+                            companyDict.Add(currentCompany.Id, currentCompany);
+                        }
+
+                        currentCompany.Employees.Add(employee);
+                        return currentCompany;
+                    }
+                );
+
+                return companies.Distinct().ToList();
+            }
+        }
+
     }
 }
